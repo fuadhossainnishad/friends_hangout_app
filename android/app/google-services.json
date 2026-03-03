@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "196910137337",
+    "project_id": "friends-hangout-app",
+    "storage_bucket": "friends-hangout-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:196910137337:android:7d7fa27fe72ab4ddd78728",
+        "android_client_info": {
+          "package_name": "com.friends_hangout_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBo-SJSVJu-5gz6qwcJGOMqtn5PJJFZa2Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
