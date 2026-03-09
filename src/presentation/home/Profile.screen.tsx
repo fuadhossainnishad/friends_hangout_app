@@ -9,16 +9,16 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
 import { launchImageLibrary, type Asset } from 'react-native-image-picker';
 import { useAuth, type SharePreference } from '../../app/context/AuthProvider';
-import { MainStackParamList } from '../../naviagtion/MainStack';
-import ArrowIcon from '../../assets/icons/arrow.svg';
+// import ArrowIcon from '../../assets/icons/arrow.svg';
 import CameraIcon from '../../assets/icons/camera.svg';
 import PhoneIcon from '../../assets/icons/phone.svg';
 import InstaIcon from '../../assets/icons/insta.svg';
 import LogoutIcon from '../../assets/icons/logout.svg';
 import { uploadFile } from '../../domain/profile/storage.service';
 import SettingsIcon from '../../assets/icons/settings.svg';
+import { ProfileStackParamList } from '../../naviagtion/ProfileStack';
 
-type NavigationProp = NativeStackNavigationProp<MainStackParamList>;
+type NavigationProp = NativeStackNavigationProp<ProfileStackParamList, 'Profile'>;
 
 const SHARE_OPTIONS: { value: SharePreference; label: string; desc: string; Icon: any }[] = [
     { value: 'phone', label: 'Phone only', desc: 'Share your number on match', Icon: PhoneIcon },
@@ -118,11 +118,12 @@ export default function ProfileScreen() {
             <LinearGradient colors={['#0B1F3F', '#0D2347', '#0A1628']} style={styles.root}>
                 <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
                     <View style={styles.header}>
-                        <TouchableOpacity onPress={() => navigation.navigate('MainTabs')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        {/* <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                             <ArrowIcon height={24} width={24} />
-                        </TouchableOpacity>
+                        </TouchableOpacity> */}
                         <Text style={styles.headerTitle}>Profile</Text>
                         <TouchableOpacity
+                            className='absolute right-8'
                             onPress={() => navigation.navigate('Settings')}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
@@ -238,7 +239,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
     root: { flex: 1 },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
         paddingHorizontal: 20, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
     },

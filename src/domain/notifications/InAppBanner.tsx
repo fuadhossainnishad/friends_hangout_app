@@ -1,27 +1,40 @@
 /**
  * InAppBanner.tsx
  *
- * A slide-down banner that appears when a foreground FCM notification arrives.
- * Mounts at the root of the app (inside AuthProvider, outside any navigator).
- * Auto-dismisses after 4 seconds. Tap to navigate.
+ * Slide-down banner for foreground FCM notifications.
+ * Mount once at app root (inside NavigationContainer, outside screen stack).
+ * Auto-dismisses after 4 s. Tappable for navigation.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    View,
+    Animated,
+    StyleSheet,
     Text,
     TouchableOpacity,
-    StyleSheet,
-    Animated,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../naviagtion/MainStack';
-import { listenForeground, type NotificationPayload } from './notifications.service';
+import { listenForeground, type NotificationPayload, type NotificationType } from './notifications.service';
 
-const BANNER_DURATION = 4000; // ms before auto-dismiss
-const SLIDE_DURATION = 300;   // ms for slide animation
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const AUTO_DISMISS_MS = 4000;
+const SLIDE_MS = 300;
+const BANNER_HEIGHT = 120; // safe offscreen translate value
+
+// ─── Icon / accent config per notification type ───────────────────────────────
+
+const TYPE_CONFIG: Record<NotificationType, { icon: string; accent: string }> = {
+    friend_online: { icon: '🟢', accent: 'rgba(74,222,128,0.12)' },
+    friend_offline: { icon: '⚫', accent: 'rgba(255,255,255,0.06)' },
+    matched: { icon: '🎉', accent: 'rgba(0,82,255,0.18)' },
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 type NavProp = NativeStackNavigationProp<MainStackParamList>;
 
@@ -29,36 +42,56 @@ export default function InAppBanner() {
     const insets = useSafeAreaInsets();
     const navigation = useNavigation<NavProp>();
 
-    const [current, setCurrent] = useState<NotificationPayload | null>(null);
-    const translateY = useRef(new Animated.Value(-120)).current;
+    const [payload, setPayload] = useState<NotificationPayload | null>(null);
+    const translateY = useRef(new Animated.Value(-BANNER_HEIGHT)).current;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Track whether banner is currently visible to avoid animating on stale state
+    const isVisible = useRef(false);
 
-    // ── Show / hide animation ─────────────────────────────────────────────────
+    // ── Animation helpers ─────────────────────────────────────────────────────
 
-    const show = (payload: NotificationPayload) => {
-        // Clear any existing timer so back-to-back notifications reset properly
-        if (dismissTimer.current) clearTimeout(dismissTimer.current);
-
-        setCurrent(payload);
-
+    const slideIn = useCallback(() => {
+        isVisible.current = true;
         Animated.spring(translateY, {
             toValue: 0,
-            useNativeDriver: true,
             bounciness: 4,
-        }).start();
-
-        dismissTimer.current = setTimeout(hide, BANNER_DURATION);
-    };
-
-    const hide = () => {
-        Animated.timing(translateY, {
-            toValue: -120,
-            duration: SLIDE_DURATION,
             useNativeDriver: true,
-        }).start(() => setCurrent(null));
-    };
+        }).start();
+    }, [translateY]);
 
-    // ── Subscribe to foreground notifications ─────────────────────────────────
+    const slideOut = useCallback((onDone?: () => void) => {
+        isVisible.current = false;
+        Animated.timing(translateY, {
+            toValue: -BANNER_HEIGHT,
+            duration: SLIDE_MS,
+            useNativeDriver: true,
+        }).start(() => {
+            setPayload(null);
+            onDone?.();
+        });
+    }, [translateY]);
+
+    // ── Show ──────────────────────────────────────────────────────────────────
+
+    const show = useCallback((incoming: NotificationPayload) => {
+        // Cancel any pending auto-dismiss
+        if (dismissTimer.current) clearTimeout(dismissTimer.current);
+
+        if (isVisible.current) {
+            // Already showing — slide out first, then immediately show new one
+            slideOut(() => {
+                setPayload(incoming);
+                slideIn();
+                dismissTimer.current = setTimeout(() => slideOut(), AUTO_DISMISS_MS);
+            });
+        } else {
+            setPayload(incoming);
+            slideIn();
+            dismissTimer.current = setTimeout(() => slideOut(), AUTO_DISMISS_MS);
+        }
+    }, [slideIn, slideOut]);
+
+    // ── Subscribe ─────────────────────────────────────────────────────────────
 
     useEffect(() => {
         const unsubscribe = listenForeground(show);
@@ -66,52 +99,68 @@ export default function InAppBanner() {
             unsubscribe();
             if (dismissTimer.current) clearTimeout(dismissTimer.current);
         };
-    }, []);
+    }, [show]);
 
-    // ── Tap handler ───────────────────────────────────────────────────────────
+    // ── Tap ───────────────────────────────────────────────────────────────────
 
-    const handleTap = () => {
-        if (!current) return;
-        hide();
+    const handleTap = useCallback(() => {
+        if (!payload) return;
+        slideOut();
 
-        if (current.type === 'matched' && current.friendUid) {
-            navigation.navigate('Matched', {
-                friendId: current.friendUid,
-                friendName: '',
-                friendUsername: '',
-            });
+        switch (payload.type) {
+            case 'matched':
+                if (payload.friendUid) {
+                    navigation.navigate('Matched', {
+                        friendId: payload.friendUid,
+                        friendName: '',
+                        friendUsername: '',
+                    });
+                }
+                break;
+
+            case 'friend_online':
+            case 'friend_offline':
+                navigation.navigate('MainTabs');
+                break;
         }
-        // friend_online → no nav, banner is enough
-    };
+    }, [payload, slideOut, navigation]);
 
-    if (!current) return null;
+    // ── Render ────────────────────────────────────────────────────────────────
 
-    // ─────────────────────────────────────────────────────────────────────────
+    if (!payload) return null;
+
+    const config = TYPE_CONFIG[payload.type];
 
     return (
         <Animated.View
             style={[
-                styles.banner,
+                styles.root,
                 { top: insets.top + 8, transform: [{ translateY }] },
             ]}
             pointerEvents="box-none"
         >
             <TouchableOpacity
-                style={styles.inner}
+                style={[styles.card, { backgroundColor: '#111827', borderColor: config.accent }]}
                 onPress={handleTap}
-                activeOpacity={0.92}
+                activeOpacity={0.9}
             >
-                <View style={styles.icon}>
-                    <Text style={styles.iconText}>
-                        {current.type === 'matched' ? '🎉' : '🟢'}
-                    </Text>
+                {/* Icon bubble */}
+                <View style={[styles.iconBubble, { backgroundColor: config.accent }]}>
+                    <Text style={styles.iconText}>{config.icon}</Text>
                 </View>
+
+                {/* Text */}
                 <View style={styles.textBlock}>
-                    <Text style={styles.title} numberOfLines={1}>{current.title}</Text>
-                    <Text style={styles.body} numberOfLines={2}>{current.body}</Text>
+                    <Text style={styles.title} numberOfLines={1}>{payload.title}</Text>
+                    <Text style={styles.body} numberOfLines={2}>{payload.body}</Text>
                 </View>
-                <TouchableOpacity onPress={hide} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text style={styles.dismiss}>✕</Text>
+
+                {/* Dismiss */}
+                <TouchableOpacity
+                    onPress={() => slideOut()}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                    <Text style={styles.dismissIcon}>✕</Text>
                 </TouchableOpacity>
             </TouchableOpacity>
         </Animated.View>
@@ -121,33 +170,30 @@ export default function InAppBanner() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-    banner: {
+    root: {
         position: 'absolute',
         left: 16,
         right: 16,
         zIndex: 9999,
         elevation: 20,
     },
-    inner: {
+    card: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1A1A2E',
         borderRadius: 16,
+        borderWidth: 1,
         paddingVertical: 14,
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
         gap: 12,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35,
+        shadowRadius: 16,
     },
-    icon: {
+    iconBubble: {
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.08)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -165,12 +211,12 @@ const styles = StyleSheet.create({
     },
     body: {
         fontSize: 12,
-        color: 'rgba(255,255,255,0.6)',
-        lineHeight: 16,
+        color: 'rgba(255,255,255,0.55)',
+        lineHeight: 17,
     },
-    dismiss: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.4)',
-        paddingLeft: 4,
+    dismissIcon: {
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.35)',
+        padding: 2,
     },
 });

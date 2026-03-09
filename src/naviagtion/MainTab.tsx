@@ -3,7 +3,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, StyleSheet, Platform } from 'react-native';
 import FriendsScreen from '../presentation/home/Friends.screen';
 import HomeScreen from '../presentation/home/Home.screen';
-import ProfileScreen from '../presentation/home/Profile.screen';
 
 // Import your SVG icons
 import FriendsActiveIcon from '../assets/icons/friend-active.svg';
@@ -12,6 +11,7 @@ import HomeActiveIcon from '../assets/icons/home-active.svg';
 import HomeInactiveIcon from '../assets/icons/home-inactive.svg';
 import ProfileActiveIcon from '../assets/icons/profile-active.svg';
 import ProfileInactiveIcon from '../assets/icons/profile-inactive.svg';
+import ProfileStack from './ProfileStack';
 
 export type MainTabParamList = {
     Home: undefined;
@@ -93,7 +93,7 @@ export default function MainTabs() {
             />
             <Tab.Screen
                 name="Profile"
-                component={ProfileScreen}
+                component={ProfileStack}
                 options={{
                     tabBarIcon: ({ focused }) => (
                         <TabIconSVG

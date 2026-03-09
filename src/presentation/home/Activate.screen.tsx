@@ -16,6 +16,8 @@ import ViewNotIcon from '../../assets/icons/view_not.svg';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'Activate'>;
 
+const ONLINE_DEFAULT_HOURS = 12;
+
 function formatTime(date: Date): string {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -25,6 +27,22 @@ function formatTime(date: Date): string {
 function avatarColor(username: string): string {
     const colors = ['#0052FF', '#00C6FF', '#7B2FF7', '#FF6B35', '#00D4AA'];
     return colors[username.charCodeAt(0) % colors.length];
+}
+
+/**
+ * Converts the time-picker value into a future Date.
+ * If the chosen time has already passed today, rolls to tomorrow.
+ */
+function resolveUntilDate(pickerValue: Date): Date {
+    const now = new Date();
+    const availableFrom = new Date(now);
+    availableFrom.setHours(pickerValue.getHours(), pickerValue.getMinutes(), 0, 0);
+    if (availableFrom <= now) {
+        availableFrom.setDate(availableFrom.getDate() + 1);
+    }
+
+    // Session ends 12 hours after they become available
+    return new Date(availableFrom.getTime() + ONLINE_DEFAULT_HOURS * 60 * 60 * 1000);
 }
 
 // ─── Friend row ───────────────────────────────────────────────────────────────
@@ -132,7 +150,10 @@ export default function ActivateScreen({ navigation }: Props) {
     const goOnline = async () => {
         setIsGoingOnline(true);
         try {
-            await setOnlineStatus(true);
+            const until: Date = availableFrom === 'later'
+                ? resolveUntilDate(laterTime)                                           // user-chosen time
+                : new Date(Date.now() + ONLINE_DEFAULT_HOURS * 60 * 60 * 1000);        // now + 12 h
+            await setOnlineStatus(true, until);
             navigation.goBack();
         } catch (error: any) {
             Alert.alert('Error', error?.message ?? 'Could not go online. Please try again.');
@@ -157,6 +178,10 @@ export default function ActivateScreen({ navigation }: Props) {
         if (Platform.OS === 'android') setShowTimePicker(false);
         if (selected) setLaterTime(selected);
     };
+    // Label shown in the section header so user knows how long their session lasts
+    const sessionLabel = availableFrom === 'later'
+        ? `Until ${formatTime(resolveUntilDate(laterTime))}`
+        : `Until ${formatTime(new Date(Date.now() + ONLINE_DEFAULT_HOURS * 60 * 60 * 1000))}`;
 
     return (
         <View style={styles.root}>
@@ -186,7 +211,11 @@ export default function ActivateScreen({ navigation }: Props) {
 
                     {/* Available from */}
                     <View style={styles.section}>
-                        <Text style={styles.sectionLabel}>AVAILABLE FROM</Text>
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionLabel}>AVAILABLE FROM</Text>
+                            {/* Session duration label — shows user how long they'll be online */}
+                            <Text style={styles.sessionLabel}>{sessionLabel}</Text>
+                        </View>
                         <View style={styles.timeOptions}>
                             <TouchableOpacity
                                 style={[styles.timeOption, availableFrom === 'now' && styles.timeOptionActive]}
@@ -319,6 +348,9 @@ const styles = StyleSheet.create({
     sectionLabel: {
         fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.35)',
         letterSpacing: 1.4, marginBottom: 12,
+    },
+    sessionLabel: {
+        fontSize: 12, fontWeight: '600', color: '#4ADE80',
     },
     sectionCount: { fontSize: 12, fontWeight: '600', color: '#4ADE80', marginBottom: 12 },
     timeOptions: { flexDirection: 'row', gap: 10 },
