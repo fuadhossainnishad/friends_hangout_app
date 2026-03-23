@@ -227,20 +227,19 @@ export default function FriendsScreen() {
                 <SafeAreaView edges={['top']} style={styles.safeTop}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        {/* <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                             <ArrowIcon width={24} height={24} color="#fff" />
-                        </TouchableOpacity>
+                        </TouchableOpacity> */}
                         <Text style={styles.headerTitle}>Friends</Text>
-                        <View style={styles.headerRight}>
                             <TouchableOpacity
+                                className='absolute right-8'
                                 onPress={() => { setShowSearch(p => !p); setSearchQuery(''); setSearchResults([]); }}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 style={styles.headerIconBtn}
                             >
                                 <AddFriendIcon width={22} height={22} />
                             </TouchableOpacity>
-                            
-                        </View>
+
                     </View>
 
                     {/* Search */}
@@ -349,7 +348,7 @@ const styles = StyleSheet.create({
     flex: { flex: 1 },
     safeTop: { backgroundColor: 'transparent' },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
         paddingHorizontal: 20, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
     },

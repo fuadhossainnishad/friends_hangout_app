@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "friends-hangout-app"
-  }
+    "default": "friends-hangout-app",
+    "production": "hora-a4598"
+  },
+  "targets": {},
+  "etags": {}
 }
