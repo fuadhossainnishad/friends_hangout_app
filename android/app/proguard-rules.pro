@@ -92,3 +92,12 @@
     public static *** d(...);
     public static *** v(...);
 }
+
+# Fix for D8 / play-services-auth crash
+-keep class com.google.android.gms.internal.** { *; }
+-dontwarn com.google.android.gms.internal.**
+
+# Prevent constructor stripping issue
+-keepclassmembers class * {
+    <init>(...);
+}
