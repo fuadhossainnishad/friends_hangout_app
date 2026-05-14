@@ -19,6 +19,7 @@ import { MainStackParamList } from '../../naviagtion/MainStack';
 import { createMatch } from '../../domain/friends/match.service';
 
 //this is home screen where user can see online friends and go online/offline. If user is online, they can also send match requests to their online friends.
+//nothing new in this release
 
 type NavigationProp = NativeStackNavigationProp<MainStackParamList>;
 

@@ -29,6 +29,8 @@ const BANNER_HEIGHT = 120; // safe offscreen translate value
 // ─── Icon / accent config per notification type ───────────────────────────────
 
 const TYPE_CONFIG: Record<NotificationType, { icon: string; accent: string }> = {
+    friend_request: { icon: '👋', accent: 'rgba(0,82,255,0.20)' },
+    friend_request_accepted: { icon: '✅', accent: 'rgba(74,222,128,0.15)' },
     friend_online: { icon: '🟢', accent: 'rgba(74,222,128,0.12)' },
     friend_offline: { icon: '⚫', accent: 'rgba(255,255,255,0.06)' },
     matched: { icon: '🎉', accent: 'rgba(0,82,255,0.18)' },

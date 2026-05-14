@@ -1,25 +1,51 @@
 /**
  * notifications.service.ts
  */
-import messaging, { type FirebaseMessagingTypes } from '@react-native-firebase/messaging';
+import messaging, {
+  type FirebaseMessagingTypes,
+} from '@react-native-firebase/messaging';
 import firestore from '@react-native-firebase/firestore';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type NotificationType = 'friend_online' | 'friend_offline' | 'matched';
+export type NotificationType =
+  | 'friend_online'
+  | 'friend_offline'
+  | 'matched'
+  | 'friend_request'
+  | 'friend_request_accepted';
 
 export type NotificationPayload = {
-    type: NotificationType;
-    friendUid?: string;
-    matchId?: string;
-    title: string;
-    body: string;
+  type: NotificationType;
+  friendUid?: string;
+  matchId?: string;
+  title: string;
+  body: string;
 };
 
 type NavRef = {
-    isReady: () => boolean;
-    navigate: (screen: string, params?: object) => void;
+  isReady: () => boolean;
+  navigate: (screen: string, params?: object) => void;
 };
+
+export async function requestNotificationPermission(): Promise<boolean> {
+  const authStatus = await messaging().requestPermission({
+    alert: true,
+    badge: true,
+    sound: true,
+  });
+
+  const granted =
+    authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+    authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+  if (!granted) {
+    // Only nag once — if they explicitly denied, respect it.
+    console.log('[FCM] Permission denied by user.');
+  }
+
+  return granted;
+}
 
 // ─── Token registration ───────────────────────────────────────────────────────
 
@@ -29,43 +55,52 @@ type NavRef = {
  * Safe to call multiple times — idempotent.
  */
 export async function registerFCMToken(uid: string): Promise<void> {
-    const authStatus = await messaging().requestPermission();
-    const granted =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+  //   const authStatus = await messaging().requestPermission();
+  //   const granted =
+  //     authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+  //     authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
-    if (!granted) {
-        console.log('FCM permission not granted');
-        return;
-    }
+  //   if (!granted) {
+  //     console.log('FCM permission not granted');
+  //     return;
+  //   }
 
-    const token = await messaging().getToken();
-    if (!token) return;
+  const token = await messaging().getToken();
+  if (!token) return;
 
-    await saveToken(uid, token);
+  await saveToken(uid, token);
 
-    messaging().onTokenRefresh(newToken => {
-        saveToken(uid, newToken).catch(console.warn);
-    });
+  messaging().onTokenRefresh(newToken => {
+    saveToken(uid, newToken).catch(console.warn);
+  });
 }
 
 async function saveToken(uid: string, token: string): Promise<void> {
-    await firestore().collection('users').doc(uid).update({ fcmToken: token });
+  await firestore().collection('users').doc(uid).update({ fcmToken: token });
 }
 
-// ─── Foreground listener ──────────────────────────────────────────────────────
+/**
+ * Removes the FCM token from Firestore on logout so the user
+ * stops receiving notifications on this device.
+ */
+export async function unregisterFCMToken(uid: string): Promise<void> {
+  await firestore()
+    .collection('users')
+    .doc(uid)
+    .update({ fcmToken: firestore.FieldValue.delete() });
+}
 
 /**
  * Listens for FCM messages while the app is foregrounded.
  * Returns an unsubscribe function — call it in useEffect cleanup.
  */
 export function listenForeground(
-    onMessage: (payload: NotificationPayload) => void
+  onMessage: (payload: NotificationPayload) => void,
 ): () => void {
-    return messaging().onMessage((msg: FirebaseMessagingTypes.RemoteMessage) => {
-        const payload = parseMessage(msg);
-        if (payload) onMessage(payload);
-    });
+  return messaging().onMessage((msg: FirebaseMessagingTypes.RemoteMessage) => {
+    const payload = parseMessage(msg);
+    if (payload) onMessage(payload);
+  });
 }
 
 // ─── Background / killed tap handler ─────────────────────────────────────────
@@ -75,63 +110,63 @@ export function listenForeground(
  * Call ONCE at root — not inside a remounting component.
  */
 export function setupBackgroundNotificationHandler(navRef: NavRef): void {
-    // App was backgrounded and user tapped the notification
-    messaging().onNotificationOpenedApp(msg => {
-        navigateFromMessage(msg, navRef);
-    });
+  // App was backgrounded and user tapped the notification
+  messaging().onNotificationOpenedApp(msg => {
+    navigateFromMessage(msg, navRef);
+  });
 
-    // App was killed and user tapped the notification (cold start)
-    messaging()
-        .getInitialNotification()
-        .then(msg => {
-            if (msg) {
-                // Small delay to let the navigator finish mounting
-                setTimeout(() => navigateFromMessage(msg, navRef), 500);
-            }
-        });
+  // App was killed and user tapped the notification (cold start)
+  messaging()
+    .getInitialNotification()
+    .then(msg => {
+      if (msg) {
+        // Small delay to let the navigator finish mounting
+        setTimeout(() => navigateFromMessage(msg, navRef), 500);
+      }
+    });
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 function parseMessage(
-    msg: FirebaseMessagingTypes.RemoteMessage
+  msg: FirebaseMessagingTypes.RemoteMessage,
 ): NotificationPayload | null {
-    const data = msg.data ?? {};
-    const type = data.type as NotificationType | undefined;
-    if (!type) return null;
+  const data = msg.data ?? {};
+  const type = data.type as NotificationType | undefined;
+  if (!type) return null;
 
-    return {
-        type,
-        friendUid: data.friendUid as string | undefined,
-        matchId:   data.matchId   as string | undefined,
-        title: msg.notification?.title ?? 'HORA',
-        body:  msg.notification?.body  ?? '',
-    };
+  return {
+    type,
+    friendUid: data.friendUid as string | undefined,
+    matchId: data.matchId as string | undefined,
+    title: msg.notification?.title ?? 'HORA',
+    body: msg.notification?.body ?? '',
+  };
 }
 
 function navigateFromMessage(
-    msg: FirebaseMessagingTypes.RemoteMessage,
-    navRef: NavRef
+  msg: FirebaseMessagingTypes.RemoteMessage,
+  navRef: NavRef,
 ): void {
-    if (!navRef.isReady()) return;
-    const data = msg.data ?? {};
-    const type = data.type as NotificationType | undefined;
+  if (!navRef.isReady()) return;
+  const data = msg.data ?? {};
+  const type = data.type as NotificationType | undefined;
 
-    switch (type) {
-        case 'matched':
-            if (data.friendUid) {
-                navRef.navigate('Matched', {
-                    friendId:       data.friendUid as string,
-                    friendName:     '',
-                    friendUsername: '',
-                });
-            }
-            break;
+  switch (type) {
+    case 'matched':
+      if (data.friendUid) {
+        navRef.navigate('Matched', {
+          friendId: data.friendUid as string,
+          friendName: '',
+          friendUsername: '',
+        });
+      }
+      break;
 
-        case 'friend_online':
-        case 'friend_offline':
-            // Both cases: bring the user to HomeScreen to see the current state
-            navRef.navigate('MainTabs');
-            break;
-    }
+    case 'friend_online':
+    case 'friend_offline':
+      // Both cases: bring the user to HomeScreen to see the current state
+      navRef.navigate('MainTabs');
+      break;
+  }
 }

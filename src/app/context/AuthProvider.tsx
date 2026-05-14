@@ -14,6 +14,7 @@ import auth, { type FirebaseAuthTypes } from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import { getUserProfile, type UserProfile } from '../../domain/auth/auth.service';
 import { AppState, type AppStateStatus } from 'react-native';
+import { useNotificationSetup } from '../../shared/hooks/useNotificationSetup';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -298,6 +299,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [state, clearExpiryTimer]);
 
     const user = state.status === 'authenticated' ? state.user : null;
+
+    useNotificationSetup(user?.uid ?? null);
 
     return (
         <AuthContext.Provider value={{ state, user, refreshProfile, updateUser, setOnlineStatus, logout }}>
