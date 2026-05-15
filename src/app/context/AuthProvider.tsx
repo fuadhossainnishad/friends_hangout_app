@@ -298,9 +298,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // onAuthStateChanged fires → setState({ status: 'unauthenticated' })
     }, [state, clearExpiryTimer]);
 
+    const uid = state.status === 'authenticated' ? state.firebaseUser.uid : null;
+
+    useNotificationSetup(uid);
+
     const user = state.status === 'authenticated' ? state.user : null;
 
-    useNotificationSetup(user?.uid ?? null);
 
     return (
         <AuthContext.Provider value={{ state, user, refreshProfile, updateUser, setOnlineStatus, logout }}>

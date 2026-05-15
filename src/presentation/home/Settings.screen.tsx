@@ -10,16 +10,23 @@
  *   /settings/terms            → { title: string, content: string }
  *   /settings/about_us         → { title: string, content: string }
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet,
     ScrollView, ActivityIndicator, Modal,
+    Alert,
+    Linking,
+    Switch,
+    Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import firestore from '@react-native-firebase/firestore';
 import ArrowIcon from '../../assets/icons/arrow.svg';
+import messaging from '@react-native-firebase/messaging';
+import { registerFCMToken, unregisterFCMToken } from '../../domain/notifications/notifications.service';
+import { useAuth } from '../../app/context/AuthProvider';
 
 type SettingDoc = { title: string; content: string };
 type SettingKey = 'privacy_policy' | 'terms' | 'about_us';
@@ -86,11 +93,120 @@ function ContentModal({ visible, docKey, onClose }: {
     );
 }
 
+function NotificationRow({ uid }: { uid: string }) {
+    const [enabled, setEnabled] = useState(true);   // optimistic default = on
+    const [loading, setLoading] = useState(true);   // fetching initial state
+    const [toggling, setToggling] = useState(false);  // mid-toggle write
+
+    // Fetch the stored preference once on mount
+    useEffect(() => {
+        firestore()
+            .collection('users')
+            .doc(uid)
+            .get()
+            .then(snap => {
+                const data = snap.data();
+                // Field absent on first run → treat as enabled (default true)
+                setEnabled(data?.notificationsEnabled !== false);
+            })
+            .catch(() => {
+                // On error keep default=true; user can still toggle
+            })
+            .finally(() => setLoading(false));
+    }, [uid]);
+
+    const handleToggle = useCallback(async (next: boolean) => {
+        // Optimistic UI update
+        setEnabled(next);
+        setToggling(true);
+
+        try {
+            if (next) {
+                // Re-enabling: check OS permission first
+                const status = await messaging().hasPermission();
+                const isGranted =
+                    status === messaging.AuthorizationStatus.AUTHORIZED ||
+                    status === messaging.AuthorizationStatus.PROVISIONAL;
+
+                if (!isGranted) {
+                    // OS permission missing — send to Settings
+                    Alert.alert(
+                        'Enable Notifications',
+                        'Please enable notifications for HORA in your device Settings first.',
+                        [
+                            {
+                                text: 'Open Settings',
+                                onPress: () => Linking.openSettings(),
+                            },
+                            {
+                                text: 'Cancel',
+                                style: 'cancel',
+                                onPress: () => setEnabled(false), // revert toggle
+                            },
+                        ],
+                    );
+                    return; // don't write to Firestore yet
+                }
+
+                // Permission is granted — register token and persist preference
+                await registerFCMToken(uid);
+            } else {
+                // Disabling — remove token so FCM stops delivering to this device
+                await unregisterFCMToken(uid);
+            }
+
+            await firestore()
+                .collection('users')
+                .doc(uid)
+                .update({ notificationsEnabled: next });
+
+        } catch (err: any) {
+            // Rollback optimistic update on failure
+            setEnabled(!next);
+            Alert.alert('Error', err?.message ?? 'Could not update notification setting.');
+        } finally {
+            setToggling(false);
+        }
+    }, [uid]);
+
+    return (
+        <View style={styles.notifRow}>
+            <View style={styles.menuLeft}>
+                <View style={styles.menuIconBox}>
+                    <Text style={styles.menuIconText}>🔔</Text>
+                </View>
+                <View>
+                    <Text style={styles.menuLabel}>Notifications</Text>
+                    <Text style={styles.notifSubLabel}>
+                        {loading ? 'Loading…' : enabled ? 'Online alerts enabled' : 'Notifications off'}
+                    </Text>
+                </View>
+            </View>
+
+            {loading || toggling ? (
+                <ActivityIndicator size="small" color="#4ADE80" style={{ marginRight: 4 }} />
+            ) : (
+                <Switch
+                    value={enabled}
+                    onValueChange={handleToggle}
+                    disabled={toggling}
+                    trackColor={{ false: 'rgba(255,255,255,0.12)', true: '#0052FF' }}
+                    thumbColor={Platform.OS === 'android' ? (enabled ? '#fff' : 'rgba(255,255,255,0.6)') : undefined}
+                    ios_backgroundColor="rgba(255,255,255,0.12)"
+                />
+            )}
+        </View>
+    );
+}
+
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
     const navigation = useNavigation();
     const [openKey, setOpenKey] = useState<SettingKey | null>(null);
+    const { user } = useAuth();
+
 
     return (
         <View style={styles.root}>
@@ -132,7 +248,14 @@ export default function SettingsScreen() {
                                 ))}
                             </View>
                         </View>
-
+                        {user && (
+                            <View style={styles.menuGroup}>
+                                <Text style={styles.groupLabel}>NOTIFICATIONS</Text>
+                                <View style={styles.menuCard}>
+                                    <NotificationRow uid={user.uid} />
+                                </View>
+                            </View>
+                        )}
                         <Text style={styles.footerText}>Made with 💙 by HORA Team</Text>
                     </ScrollView>
                 </SafeAreaView>
@@ -166,6 +289,11 @@ const styles = StyleSheet.create({
     menuIconText: { fontSize: 18 },
     menuLabel: { fontSize: 16, fontWeight: '500', color: '#fff' },
     chevron: { fontSize: 24, color: 'rgba(255,255,255,0.22)', fontWeight: '300', marginRight: 4 },
+    notifRow: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        paddingVertical: 14, paddingHorizontal: 16,
+    },
+    notifSubLabel: { fontSize: 12, color: 'rgba(255,255,255,0.38)', marginTop: 2 },
     divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginHorizontal: 16 },
     footerText: { textAlign: 'center', fontSize: 13, color: 'rgba(255,255,255,0.2)' },
 });
