@@ -7,7 +7,7 @@ import SettingsScreen from '../presentation/home/Settings.screen';
 export type MainStackParamList = {
     MainTabs: undefined;
     Activate: undefined;
-    Matched: { friendId: string; friendName: string; friendUsername: string };
+    Matched: { matchId: string; friendName: string; friendUsername: string };
     Settings: undefined;
 };
 

@@ -2,8 +2,15 @@
  * InAppBanner.tsx
  *
  * Slide-down banner for foreground FCM notifications.
- * Mount once at app root (inside NavigationContainer, outside screen stack).
+ * Mount ONCE at app root (inside NavigationContainer, outside screen stack).
  * Auto-dismisses after 4 s. Tappable for navigation.
+ *
+ * Usage:
+ *   // App.tsx (or wherever your NavigationContainer lives)
+ *   <NavigationContainer>
+ *       <InAppBanner />
+ *       <Stack.Navigator … />
+ *   </NavigationContainer>
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,21 +25,26 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../naviagtion/MainStack';
-import { listenForeground, type NotificationPayload, type NotificationType } from './notifications.service';
+import {
+    listenForeground,
+    type NotificationPayload,
+    type NotificationType,
+} from './notifications.service';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const AUTO_DISMISS_MS = 4000;
-const SLIDE_MS = 300;
-const BANNER_HEIGHT = 120; // safe offscreen translate value
+const AUTO_DISMISS_MS = 4_000;
+const SLIDE_MS = 280;
+const BANNER_HEIGHT = 120; // safe offscreen value
 
 // ─── Icon / accent config per notification type ───────────────────────────────
 
 const TYPE_CONFIG: Record<NotificationType, { icon: string; accent: string }> = {
     friend_request: { icon: '👋', accent: 'rgba(0,82,255,0.20)' },
-    friend_request_accepted: { icon: '✅', accent: 'rgba(74,222,128,0.15)' },
+    request_accepted: { icon: '✅', accent: 'rgba(74,222,128,0.15)' },
     friend_online: { icon: '🟢', accent: 'rgba(74,222,128,0.12)' },
     friend_offline: { icon: '⚫', accent: 'rgba(255,255,255,0.06)' },
+    match_initiated: { icon: '💌', accent: 'rgba(123,47,247,0.18)' },
     matched: { icon: '🎉', accent: 'rgba(0,82,255,0.18)' },
 };
 
@@ -47,7 +59,6 @@ export default function InAppBanner() {
     const [payload, setPayload] = useState<NotificationPayload | null>(null);
     const translateY = useRef(new Animated.Value(-BANNER_HEIGHT)).current;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Track whether banner is currently visible to avoid animating on stale state
     const isVisible = useRef(false);
 
     // ── Animation helpers ─────────────────────────────────────────────────────
@@ -76,24 +87,23 @@ export default function InAppBanner() {
     // ── Show ──────────────────────────────────────────────────────────────────
 
     const show = useCallback((incoming: NotificationPayload) => {
-        // Cancel any pending auto-dismiss
         if (dismissTimer.current) clearTimeout(dismissTimer.current);
 
-        if (isVisible.current) {
-            // Already showing — slide out first, then immediately show new one
-            slideOut(() => {
-                setPayload(incoming);
-                slideIn();
-                dismissTimer.current = setTimeout(() => slideOut(), AUTO_DISMISS_MS);
-            });
-        } else {
+        const present = () => {
             setPayload(incoming);
             slideIn();
             dismissTimer.current = setTimeout(() => slideOut(), AUTO_DISMISS_MS);
+        };
+
+        if (isVisible.current) {
+            // Replace the current banner without leaving a gap
+            slideOut(present);
+        } else {
+            present();
         }
     }, [slideIn, slideOut]);
 
-    // ── Subscribe ─────────────────────────────────────────────────────────────
+    // ── Subscribe to foreground messages ──────────────────────────────────────
 
     useEffect(() => {
         const unsubscribe = listenForeground(show);
@@ -103,17 +113,23 @@ export default function InAppBanner() {
         };
     }, [show]);
 
-    // ── Tap ───────────────────────────────────────────────────────────────────
+    // ── Tap → navigate ────────────────────────────────────────────────────────
 
     const handleTap = useCallback(() => {
         if (!payload) return;
         slideOut();
 
         switch (payload.type) {
+            case 'friend_request':
+            case 'request_accepted':
+                navigation.navigate('MainTabs', { screen: 'Friends' } as any);
+                break;
+
+            case 'match_initiated':
             case 'matched':
                 if (payload.friendUid) {
                     navigation.navigate('Matched', {
-                        friendId: payload.friendUid,
+                        matchId: payload.friendUid,
                         friendName: '',
                         friendUsername: '',
                     });
@@ -142,11 +158,14 @@ export default function InAppBanner() {
             pointerEvents="box-none"
         >
             <TouchableOpacity
-                style={[styles.card, { backgroundColor: '#111827', borderColor: config.accent }]}
+                style={[
+                    styles.card,
+                    { borderColor: config.accent },
+                ]}
                 onPress={handleTap}
                 activeOpacity={0.9}
             >
-                {/* Icon bubble */}
+                {/* Icon */}
                 <View style={[styles.iconBubble, { backgroundColor: config.accent }]}>
                     <Text style={styles.iconText}>{config.icon}</Text>
                 </View>
@@ -176,7 +195,7 @@ const styles = StyleSheet.create({
         position: 'absolute',
         left: 16,
         right: 16,
-        zIndex: 9999,
+        zIndex: 9_999,
         elevation: 20,
     },
     card: {
@@ -187,6 +206,7 @@ const styles = StyleSheet.create({
         paddingVertical: 14,
         paddingHorizontal: 14,
         gap: 12,
+        backgroundColor: '#111827',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.35,
@@ -199,13 +219,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    iconText: {
-        fontSize: 20,
-    },
-    textBlock: {
-        flex: 1,
-        gap: 2,
-    },
+    iconText: { fontSize: 20 },
+    textBlock: { flex: 1, gap: 2 },
     title: {
         fontSize: 14,
         fontWeight: '700',

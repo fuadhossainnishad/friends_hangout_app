@@ -1,307 +1,259 @@
+/**
+ * MatchedScreen.tsx
+ *
+ * Shown to both parties when status → 'accepted'.
+ * Subscribes to /matches/{matchId} in real time so contact details
+ * appear the moment the Cloud Function writes them (1-2 s after match).
+ *
+ * Navigation params:
+ *   matchId   string  — Firestore match document id
+ *   myUid     string  — the current user's uid (to know which side to show)
+ *
+ * What it shows:
+ *   • The matched friend's username + avatar
+ *   • Phone number (if shared)
+ *   • Instagram handle (if shared)
+ *   • Profile image (if set)
+ */
+
 import React, { useEffect, useState } from 'react';
 import {
-    View,
+    ActivityIndicator,
+    Linking,
+    ScrollView,
+    StyleSheet,
     Text,
     TouchableOpacity,
-    StyleSheet,
-    Linking,
-    ActivityIndicator,
-    Image,
-    Alert,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import LinearGradient from 'react-native-linear-gradient';
 import { MainStackParamList } from '../../naviagtion/MainStack';
-import { getUserProfile, type UserProfile } from '../../domain/auth/auth.service';
 import { useAuth } from '../../app/context/AuthProvider';
+import { MatchDoc, subscribeToMatch } from '../../domain/friends/match.service';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'Matched'>;
 
-// ─── Contact actions ──────────────────────────────────────────────────────────
+// ─── Avatar ───────────────────────────────────────────────────────────────────
 
-async function openWhatsApp(phoneNumber: string) {
-    // Strip all non-digits — Firestore stores E.164 e.g. +8801711234567
-    const digits = phoneNumber.replace(/\D/g, '');
-    const url = `whatsapp://send?phone=${digits}`;
-    const canOpen = await Linking.canOpenURL(url);
-    if (canOpen) {
-        await Linking.openURL(url);
-    } else {
-        Alert.alert('WhatsApp not installed', 'Please install WhatsApp to message this friend.');
-    }
+function Avatar({ name, size = 80 }: { name: string; size?: number }) {
+    const colors = ['#0052FF', '#00C6FF', '#7B2FF7', '#FF6B35', '#00D4AA'];
+    const bg = colors[name.charCodeAt(0) % colors.length];
+    return (
+        <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
+            <Text style={[styles.avatarText, { fontSize: size * 0.4 }]}>
+                {name.charAt(0).toUpperCase()}
+            </Text>
+        </View>
+    );
 }
 
-async function openInstagram(username: string) {
-    const clean = username.replace('@', '').trim();
-    const appUrl = `instagram://user?username=${clean}`;
-    const webUrl = `https://instagram.com/${clean}`;
-    const canOpen = await Linking.canOpenURL(appUrl);
-    await Linking.openURL(canOpen ? appUrl : webUrl);
+// ─── Contact row ──────────────────────────────────────────────────────────────
+
+function ContactRow({ icon, label, value, onPress }: {
+    icon: string;
+    label: string;
+    value: string;
+    onPress?: () => void;
+}) {
+    const inner = (
+        <View style={styles.contactRow}>
+            <View style={styles.contactIcon}>
+                <Text style={styles.contactIconText}>{icon}</Text>
+            </View>
+            <View style={styles.contactText}>
+                <Text style={styles.contactLabel}>{label}</Text>
+                <Text style={styles.contactValue}>{value}</Text>
+            </View>
+            {onPress && <Text style={styles.contactChevron}>›</Text>}
+        </View>
+    );
+
+    if (onPress) {
+        return (
+            <TouchableOpacity onPress={onPress} activeOpacity={0.75}>
+                {inner}
+            </TouchableOpacity>
+        );
+    }
+    return inner;
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-export default function MatchedScreen({ navigation, route }: Props) {
-    const { friendId } = route.params;
-    const { user: me } = useAuth();
+export default function MatchedScreen({ route, navigation }: Props) {
+    const { matchId } = route.params;
+    const { user } = useAuth();
 
-    const [friend, setFriend] = useState<UserProfile | null>(null);
+    const [match, setMatch] = useState<MatchDoc | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Subscribe to real-time updates — contact info arrives 1-2 s after match
     useEffect(() => {
-        getUserProfile(friendId)
-            .then(setFriend)
-            .catch(() => Alert.alert('Error', 'Could not load friend details.'))
-            .finally(() => setIsLoading(false));
-    }, [friendId]);
+        const unsub = subscribeToMatch(
+            matchId,
+            doc => {
+                setMatch(doc);
+                setIsLoading(false);
+            },
+            () => setIsLoading(false),
+        );
+        return unsub;
+    }, [matchId]);
 
-    const handleClose = () => navigation.navigate('MainTabs');
+    // Determine which side of the match we are on
+    const isInitiator = match?.initiator_uid === user?.uid;
 
-    // What contact details to show depends on the FRIEND's share preference
-    const sharePreference = (friend as any)?.sharePreference ?? 'both';
-    const showPhone = sharePreference === 'phone' || sharePreference === 'both';
-    const showInstagram = sharePreference === 'instagram' || sharePreference === 'both';
-    const hasInstagram = !!friend?.instagram_username?.trim();
-    const hasPhone = !!friend?.phone_number?.trim();
+    const friendUsername = isInitiator ? match?.target_username : match?.initiator_username;
+    const friendPhone = isInitiator ? match?.target_phone : match?.initiator_phone;
+    const friendInsta = isInitiator ? match?.target_instagram : match?.initiator_instagram;
 
-    // ─────────────────────────────────────────────────────────────────────────
+    const hasContactInfo = Boolean(friendPhone || friendInsta);
+
+    // Contact details may not be written yet — poll briefly with the loader
+    const contactReady = match?.status === 'accepted' && (
+        isInitiator
+            ? match?.target_username !== undefined
+            : match?.initiator_username !== undefined
+    );
 
     return (
-        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* Close */}
-            <TouchableOpacity
-                style={styles.closeButton}
-                onPress={handleClose}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-                <Text style={styles.closeIcon}>✕</Text>
-            </TouchableOpacity>
+        <View style={styles.root}>
+            <LinearGradient colors={['#0B1F3F', '#0D2347', '#0A1628']} style={styles.root}>
+                <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1 }}>
+                    <ScrollView
+                        contentContainerStyle={styles.scrollContent}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {/* Celebration header */}
+                        <Text style={styles.emoji}>🎉</Text>
+                        <Text style={styles.heading}>It's a Match!</Text>
+                        <Text style={styles.subheading}>
+                            You and{' '}
+                            <Text style={styles.subheadingBold}>
+                                @{friendUsername ?? '...'}
+                            </Text>{' '}
+                            matched each other.
+                        </Text>
 
-            {/* Header */}
-            <View style={styles.header}>
-                <Text style={styles.logo}>HORA</Text>
-                <Text style={styles.matchedLabel}>It's a match!</Text>
-            </View>
+                        {/* Avatar */}
+                        {friendUsername ? (
+                            <View style={styles.avatarWrapper}>
+                                <Avatar name={friendUsername} size={88} />
+                                <Text style={styles.friendName}>@{friendUsername}</Text>
+                            </View>
+                        ) : null}
 
-            {/* Friend card */}
-            {isLoading ? (
-                <ActivityIndicator color="#fff" size="large" style={styles.loader} />
-            ) : friend ? (
-                <View style={styles.friendCard}>
-                    {/* Avatar */}
-                    {friend.profile ? (
-                        <Image source={{ uri: friend.profile }} style={styles.avatar} />
-                    ) : (
-                        <View style={styles.avatarFallback}>
-                            <Text style={styles.avatarLetter}>
-                                {friend.username.charAt(0).toUpperCase()}
-                            </Text>
-                        </View>
-                    )}
-                    <Text style={styles.friendUsername}>@{friend.username}</Text>
+                        {/* Contact info section */}
+                        {isLoading || !contactReady ? (
+                            <View style={styles.loadingBlock}>
+                                <ActivityIndicator color="#4ADE80" />
+                                <Text style={styles.loadingText}>Loading contact details…</Text>
+                            </View>
+                        ) : !hasContactInfo ? (
+                            <View style={styles.noContactBlock}>
+                                <Text style={styles.noContactIcon}>🤷</Text>
+                                <Text style={styles.noContactText}>
+                                    @{friendUsername} hasn't shared any contact info yet.
+                                </Text>
+                            </View>
+                        ) : (
+                            <View style={styles.contactCard}>
+                                <Text style={styles.contactCardLabel}>CONTACT INFO</Text>
 
-                    {/* Shared contact info */}
-                    <View style={styles.contactInfo}>
-                        {showPhone && hasPhone && (
-                            <View style={styles.contactRow}>
-                                <Text style={styles.contactLabel}>Phone</Text>
-                                <Text style={styles.contactValue}>{friend.phone_number}</Text>
+                                {friendPhone ? (
+                                    <ContactRow
+                                        icon="📱"
+                                        label="Phone"
+                                        value={friendPhone}
+                                        onPress={() => Linking.openURL(`tel:${friendPhone}`)}
+                                    />
+                                ) : null}
+
+                                {friendPhone && friendInsta ? (
+                                    <View style={styles.contactDivider} />
+                                ) : null}
+
+                                {friendInsta ? (
+                                    <ContactRow
+                                        icon="📸"
+                                        label="Instagram"
+                                        value={`@${friendInsta}`}
+                                        onPress={() =>
+                                            Linking.openURL(`https://instagram.com/${friendInsta}`)
+                                        }
+                                    />
+                                ) : null}
                             </View>
                         )}
-                        {showInstagram && hasInstagram && (
-                            <View style={styles.contactRow}>
-                                <Text style={styles.contactLabel}>Instagram</Text>
-                                <Text style={styles.contactValue}>@{friend.instagram_username}</Text>
-                            </View>
-                        )}
-                        {!showPhone && !showInstagram && (
-                            <Text style={styles.noContact}>No contact info shared</Text>
-                        )}
+                    </ScrollView>
+
+                    {/* Footer */}
+                    <View style={styles.footer}>
+                        <TouchableOpacity
+                            style={styles.doneBtn}
+                            onPress={() => navigation.navigate('MainTabs')}
+                            activeOpacity={0.85}
+                        >
+                            <LinearGradient colors={['#0052FF', '#0066FF']} style={styles.doneBtnGradient}>
+                                <Text style={styles.doneBtnText}>Done</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
                     </View>
-                </View>
-            ) : (
-                <View style={styles.friendCard}>
-                    <Text style={styles.noContact}>Could not load friend details</Text>
-                </View>
-            )}
-
-            {/* Action buttons */}
-            {friend && (
-                <View style={styles.actions}>
-                    {showPhone && hasPhone && (
-                        <TouchableOpacity
-                            style={styles.actionButton}
-                            onPress={() => openWhatsApp(friend.phone_number)}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.actionIcon}>💬</Text>
-                            <Text style={styles.actionText}>Message on WhatsApp</Text>
-                        </TouchableOpacity>
-                    )}
-
-                    {showInstagram && hasInstagram && (
-                        <TouchableOpacity
-                            style={styles.actionButton}
-                            onPress={() => openInstagram(friend.instagram_username)}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.actionIcon}>📷</Text>
-                            <Text style={styles.actionText}>Open on Instagram</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-            )}
-
-            {/* Footer */}
-            <TouchableOpacity
-                style={styles.backButton}
-                onPress={handleClose}
-                activeOpacity={0.85}
-            >
-                <Text style={styles.backButtonText}>Back Online</Text>
-            </TouchableOpacity>
-        </SafeAreaView>
+                </SafeAreaView>
+            </LinearGradient>
+        </View>
     );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const AVATAR_SIZE = 88;
-
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0A1628',
-        paddingHorizontal: 24,
-        paddingTop: 16,
-        paddingBottom: 32,
+    root: { flex: 1 },
+    scrollContent: { paddingHorizontal: 24, paddingTop: 48, paddingBottom: 120, alignItems: 'center', gap: 20 },
+    emoji: { fontSize: 56 },
+    heading: { fontSize: 32, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
+    subheading: { fontSize: 16, color: 'rgba(255,255,255,0.55)', textAlign: 'center', lineHeight: 24 },
+    subheadingBold: { color: '#fff', fontWeight: '700' },
+    avatarWrapper: { alignItems: 'center', gap: 12, marginTop: 8 },
+    avatar: { justifyContent: 'center', alignItems: 'center' },
+    avatarText: { fontWeight: '800', color: '#fff' },
+    friendName: { fontSize: 18, fontWeight: '700', color: '#fff' },
+    loadingBlock: { alignItems: 'center', gap: 12, marginTop: 16 },
+    loadingText: { fontSize: 14, color: 'rgba(255,255,255,0.4)' },
+    noContactBlock: { alignItems: 'center', gap: 10, marginTop: 16 },
+    noContactIcon: { fontSize: 36 },
+    noContactText: { fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center' },
+    contactCard: {
+        width: '100%', marginTop: 8,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 18, overflow: 'hidden',
     },
-    closeButton: {
-        alignSelf: 'flex-end',
-        padding: 8,
+    contactCardLabel: {
+        fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.35)',
+        letterSpacing: 1.4, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8,
     },
-    closeIcon: {
-        fontSize: 22,
-        color: 'rgba(255,255,255,0.5)',
+    contactRow: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 14 },
+    contactIcon: {
+        width: 42, height: 42, borderRadius: 12,
+        backgroundColor: 'rgba(255,255,255,0.07)',
+        justifyContent: 'center', alignItems: 'center',
     },
-    header: {
-        alignItems: 'center',
-        marginTop: 24,
-        marginBottom: 36,
-        gap: 8,
+    contactIconText: { fontSize: 20 },
+    contactText: { flex: 1 },
+    contactLabel: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 2 },
+    contactValue: { fontSize: 16, fontWeight: '600', color: '#fff' },
+    contactChevron: { fontSize: 24, color: 'rgba(255,255,255,0.22)', fontWeight: '300' },
+    contactDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginHorizontal: 16 },
+    footer: {
+        position: 'absolute', bottom: 0, left: 0, right: 0,
+        paddingHorizontal: 24, paddingTop: 12, paddingBottom: 34,
+        backgroundColor: 'rgba(10,22,40,0.95)',
+        borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.07)',
     },
-    logo: {
-        fontSize: 28,
-        fontWeight: '700',
-        color: '#fff',
-        letterSpacing: 2,
-    },
-    matchedLabel: {
-        fontSize: 36,
-        fontWeight: '800',
-        color: '#fff',
-    },
-    loader: {
-        marginTop: 60,
-    },
-    friendCard: {
-        backgroundColor: 'rgba(255,255,255,0.06)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 20,
-        padding: 28,
-        alignItems: 'center',
-        gap: 12,
-    },
-    avatar: {
-        width: AVATAR_SIZE,
-        height: AVATAR_SIZE,
-        borderRadius: AVATAR_SIZE / 2,
-        marginBottom: 4,
-    },
-    avatarFallback: {
-        width: AVATAR_SIZE,
-        height: AVATAR_SIZE,
-        borderRadius: AVATAR_SIZE / 2,
-        backgroundColor: '#0052FF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 4,
-    },
-    avatarLetter: {
-        fontSize: 36,
-        fontWeight: '700',
-        color: '#fff',
-    },
-    friendUsername: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: '#fff',
-    },
-    contactInfo: {
-        width: '100%',
-        marginTop: 8,
-        gap: 10,
-    },
-    contactRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.06)',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderRadius: 10,
-    },
-    contactLabel: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.45)',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    contactValue: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    noContact: {
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.4)',
-        textAlign: 'center',
-    },
-    actions: {
-        gap: 12,
-        marginTop: 24,
-    },
-    actionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 14,
-        backgroundColor: 'rgba(255,255,255,0.06)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        paddingHorizontal: 20,
-        paddingVertical: 16,
-        borderRadius: 14,
-    },
-    actionIcon: {
-        fontSize: 22,
-    },
-    actionText: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    backButton: {
-        marginTop: 'auto',
-        backgroundColor: '#fff',
-        paddingVertical: 16,
-        borderRadius: 50,
-        alignItems: 'center',
-    },
-    backButtonText: {
-        color: '#0A1628',
-        fontSize: 16,
-        fontWeight: '700',
-    },
+    doneBtn: { borderRadius: 50, overflow: 'hidden' },
+    doneBtnGradient: { paddingVertical: 16, alignItems: 'center', borderRadius: 50 },
+    doneBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
 });

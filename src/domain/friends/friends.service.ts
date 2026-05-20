@@ -203,8 +203,9 @@ export async function acceptFriendRequest(
 ): Promise<void> {
   const docRef = firestore().collection('friendships').doc(friendshipId);
   const snap = await docRef.get();
+  const snapExists = snap.exists();
 
-  if (!snap.exists()) throw new Error('Friendship not found.');
+  if (!snapExists) throw new Error('Friendship not found.');
 
   const data = snap.data() as Friendship;
   if (data.requester_uid === myUid)
@@ -241,8 +242,8 @@ async function batchGetUsers(uids: string[]): Promise<UserProfile[]> {
 
   const chunks: string[][] = [];
   for (let i = 0; i < uids.length; i += 30) chunks.push(uids.slice(i, i + 30));
-  
-  const results = await Promise.all(
+
+  const results = await Promise.all( 
     chunks.map(chunk =>
       firestore().collection('users').where('uid', 'in', chunk).get(),
     ),

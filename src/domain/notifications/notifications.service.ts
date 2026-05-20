@@ -1,19 +1,29 @@
 /**
  * notifications.service.ts
+ *
+ * Responsibilities:
+ *   • Register / refresh / remove the FCM token in Firestore
+ *   • Foreground message listener (feeds InAppBanner)
+ *   • Background / cold-start tap → navigation handler
+ *
+ * Permission flow lives in useNotificationSetup.ts (not here).
+ * Cloud Functions handle all FCM fan-out sends.
  */
+
 import messaging, {
   type FirebaseMessagingTypes,
 } from '@react-native-firebase/messaging';
 import firestore from '@react-native-firebase/firestore';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Public types ─────────────────────────────────────────────────────────────
 
 export type NotificationType =
+  | 'friend_request'
+  | 'request_accepted'
   | 'friend_online'
   | 'friend_offline'
-  | 'matched'
-  | 'friend_request'
-  | 'friend_request_accepted';
+  | 'match_initiated'
+  | 'matched';
 
 export type NotificationPayload = {
   type: NotificationType;
@@ -28,60 +38,28 @@ type NavRef = {
   navigate: (screen: string, params?: object) => void;
 };
 
-export async function requestNotificationPermission(): Promise<boolean> {
-  const authStatus = await messaging().requestPermission({
-    alert: true,
-    badge: true,
-    sound: true,
-  });
-
-  const granted =
-    authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-    authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-  if (!granted) {
-    // Only nag once — if they explicitly denied, respect it.
-    console.log('[FCM] Permission denied by user.');
-  }
-
-  return granted;
-}
-
 // ─── Token registration ───────────────────────────────────────────────────────
 
 /**
- * Requests permission, gets FCM token, saves to /users/{uid}.fcmToken.
- * Sets up onTokenRefresh so the token stays current if the OS rotates it.
- * Safe to call multiple times — idempotent.
+ * Fetches the FCM token and persists it to /users/{uid}.fcmToken.
+ * Sets up automatic token rotation via onTokenRefresh.
+ * Only call this AFTER permission has been granted.
  */
 export async function registerFCMToken(uid: string): Promise<void> {
-  //   const authStatus = await messaging().requestPermission();
-  //   const granted =
-  //     authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-  //     authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-  //   if (!granted) {
-  //     console.log('FCM permission not granted');
-  //     return;
-  //   }
-
   const token = await messaging().getToken();
   if (!token) return;
 
-  await saveToken(uid, token);
+  await _saveToken(uid, token);
 
+  // OS can rotate the token at any time; keep Firestore in sync.
   messaging().onTokenRefresh(newToken => {
-    saveToken(uid, newToken).catch(console.warn);
+    _saveToken(uid, newToken).catch(console.warn);
   });
 }
 
-async function saveToken(uid: string, token: string): Promise<void> {
-  await firestore().collection('users').doc(uid).update({ fcmToken: token });
-}
-
 /**
- * Removes the FCM token from Firestore on logout so the user
- * stops receiving notifications on this device.
+ * Deletes the FCM token from Firestore on logout so this device
+ * stops receiving notifications.
  */
 export async function unregisterFCMToken(uid: string): Promise<void> {
   await firestore()
@@ -90,15 +68,21 @@ export async function unregisterFCMToken(uid: string): Promise<void> {
     .update({ fcmToken: firestore.FieldValue.delete() });
 }
 
+async function _saveToken(uid: string, token: string): Promise<void> {
+  await firestore().collection('users').doc(uid).update({ fcmToken: token });
+}
+
+// ─── Foreground listener ──────────────────────────────────────────────────────
+
 /**
  * Listens for FCM messages while the app is foregrounded.
- * Returns an unsubscribe function — call it in useEffect cleanup.
+ * Returns an unsubscribe function — wire into useEffect cleanup.
  */
 export function listenForeground(
   onMessage: (payload: NotificationPayload) => void,
 ): () => void {
   return messaging().onMessage((msg: FirebaseMessagingTypes.RemoteMessage) => {
-    const payload = parseMessage(msg);
+    const payload = _parseMessage(msg);
     if (payload) onMessage(payload);
   });
 }
@@ -106,29 +90,27 @@ export function listenForeground(
 // ─── Background / killed tap handler ─────────────────────────────────────────
 
 /**
- * Wires navigation for notification taps when app is backgrounded or killed.
- * Call ONCE at root — not inside a remounting component.
+ * Wires navigation for notification taps when the app is backgrounded or killed.
+ * Call ONCE at app root — never inside a remounting component.
  */
 export function setupBackgroundNotificationHandler(navRef: NavRef): void {
-  // App was backgrounded and user tapped the notification
   messaging().onNotificationOpenedApp(msg => {
-    navigateFromMessage(msg, navRef);
+    _navigateFromMessage(msg, navRef);
   });
 
-  // App was killed and user tapped the notification (cold start)
   messaging()
     .getInitialNotification()
     .then(msg => {
       if (msg) {
-        // Small delay to let the navigator finish mounting
-        setTimeout(() => navigateFromMessage(msg, navRef), 500);
+        // Brief delay — let the navigator finish mounting on cold start.
+        setTimeout(() => _navigateFromMessage(msg, navRef), 500);
       }
     });
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-function parseMessage(
+function _parseMessage(
   msg: FirebaseMessagingTypes.RemoteMessage,
 ): NotificationPayload | null {
   const data = msg.data ?? {};
@@ -144,7 +126,7 @@ function parseMessage(
   };
 }
 
-function navigateFromMessage(
+function _navigateFromMessage(
   msg: FirebaseMessagingTypes.RemoteMessage,
   navRef: NavRef,
 ): void {
@@ -153,6 +135,11 @@ function navigateFromMessage(
   const type = data.type as NotificationType | undefined;
 
   switch (type) {
+    case 'friend_request':
+    case 'request_accepted':
+      navRef.navigate('MainTabs', { screen: 'Friends' });
+      break;
+
     case 'matched':
       if (data.friendUid) {
         navRef.navigate('Matched', {
@@ -165,7 +152,6 @@ function navigateFromMessage(
 
     case 'friend_online':
     case 'friend_offline':
-      // Both cases: bring the user to HomeScreen to see the current state
       navRef.navigate('MainTabs');
       break;
   }
