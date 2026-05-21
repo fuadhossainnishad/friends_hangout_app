@@ -151,8 +151,8 @@ export default function ActivateScreen({ navigation }: Props) {
         setIsGoingOnline(true);
         try {
             const until: Date = availableFrom === 'later'
-                ? resolveUntilDate(laterTime)                                           // user-chosen time
-                : new Date(Date.now() + ONLINE_DEFAULT_HOURS * 60 * 60 * 1000);        // now + 12 h
+                ? resolveUntilDate(laterTime)
+                : new Date(Date.now() + ONLINE_DEFAULT_HOURS * 60 * 60 * 1000);
             await setOnlineStatus(true, until);
             navigation.goBack();
         } catch (error: any) {
