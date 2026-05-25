@@ -16,7 +16,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useAuth } from '../../app/context/AuthProvider';
 import { getOnlineFriends, type OnlineFriendRecord } from '../../domain/friends/friends.service';
 import { MainStackParamList } from '../../naviagtion/MainStack';
-import { createMatch } from '../../domain/friends/match.service';
+import { createOrAcceptMatch } from '../../domain/friends/match.service';
 
 //this is home screen where user can see online friends and go online/offline. If user is online, they can also send match requests to their online friends.
 //nothing new in this release
@@ -127,9 +127,9 @@ export default function HomeScreen() {
         if (!user || matchingUid) return;
         setMatchingUid(record.user.uid);
         try {
-            await createMatch(user.uid, record.user.uid);
+            await createOrAcceptMatch(user.uid, record.user.uid);
             navigation.navigate('Matched', {
-                friendId: record.user.uid,
+                matchId: record.user.uid,
                 friendName: record.user.username,
                 friendUsername: record.user.username,
             });
