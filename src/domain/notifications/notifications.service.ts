@@ -141,9 +141,9 @@ function _navigateFromMessage(
       break;
 
     case 'matched':
-      if (data.friendUid) {
+      if (data.matchId) {
         navRef.navigate('Matched', {
-          friendId: data.friendUid as string,
+          friendId: data.matchId as string,
           friendName: '',
           friendUsername: '',
         });

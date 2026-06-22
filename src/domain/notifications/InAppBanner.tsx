@@ -129,7 +129,7 @@ export default function InAppBanner() {
             case 'matched':
                 if (payload.friendUid) {
                     navigation.navigate('Matched', {
-                        matchId: payload.friendUid,
+                        matchId: payload.matchId!,
                         friendName: '',
                         friendUsername: '',
                     });

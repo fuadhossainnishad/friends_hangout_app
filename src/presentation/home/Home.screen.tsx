@@ -123,13 +123,21 @@ export default function HomeScreen() {
      *   3. Navigate current user to MatchedScreen immediately
      *   4. Friend receives the push notification and taps it → also lands on MatchedScreen
      */
+
     const handleMatch = async (record: OnlineFriendRecord) => {
         if (!user || matchingUid) return;
         setMatchingUid(record.user.uid);
+
+        const result = await createOrAcceptMatch(
+            user.uid,
+            record.user.uid,
+        );
+
+        console.log('MATCH RESULT', result);
         try {
             await createOrAcceptMatch(user.uid, record.user.uid);
             navigation.navigate('Matched', {
-                matchId: record.user.uid,
+                matchId: result.matchId,
                 friendName: record.user.username,
                 friendUsername: record.user.username,
             });

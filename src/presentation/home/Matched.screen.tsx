@@ -84,6 +84,7 @@ function ContactRow({ icon, label, value, onPress }: {
 
 export default function MatchedScreen({ route, navigation }: Props) {
     const { matchId } = route.params;
+    console.log('MATCH ID FROM ROUTE:', matchId);
     const { user } = useAuth();
 
     const [match, setMatch] = useState<MatchDoc | null>(null);
@@ -99,6 +100,11 @@ export default function MatchedScreen({ route, navigation }: Props) {
             },
             () => setIsLoading(false),
         );
+        console.log('match', match);
+        console.log('status', match?.status);
+        console.log('initiator_username', match?.initiator_username);
+        console.log('target_username', match?.target_username);
+        console.log('isLoading', isLoading);
         return unsub;
     }, [matchId]);
 

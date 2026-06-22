@@ -52,21 +52,21 @@
  *    target_username,    target_phone?,    target_instagram?,    target_profile?
  */
 
-import { initializeApp }    from 'firebase-admin/app';
+import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { getMessaging }     from 'firebase-admin/messaging';
+import { getMessaging } from 'firebase-admin/messaging';
 import {
     onDocumentCreated,
     onDocumentUpdated,
 } from 'firebase-functions/v2/firestore';
-import { onSchedule }       from 'firebase-functions/v2/scheduler';
-import { logger }           from 'firebase-functions/v2';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { logger } from 'firebase-functions/v2';
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 initializeApp();
 
-const db  = getFirestore();
+const db = getFirestore();
 const fcm = getMessaging();
 
 // ─── IMPORTANT: set this to your Firestore database region ───────────────────
@@ -77,32 +77,32 @@ const REGION = 'us-central1';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type FriendshipStatus = 'pending' | 'accepted';
-type MatchStatus      = 'pending' | 'accepted';
+type MatchStatus = 'pending' | 'accepted';
 
 interface Friendship {
-    uid1:          string;
-    uid2:          string;
-    status:        FriendshipStatus;
+    uid1: string;
+    uid2: string;
+    status: FriendshipStatus;
     requester_uid: string;
-    ghosted_by:    string[];
+    ghosted_by: string[];
 }
 
 interface UserDoc {
-    uid:                    string;
-    username:               string;
-    fcmToken?:              string;
-    isOnline?:              boolean;
-    onlineUntil?:           FirebaseFirestore.Timestamp;
-    notificationsEnabled?:  boolean;  // absent = true (default on)
-    phone?:                 string;
-    instagram_username?:    string;
-    profile?:               string;   // avatar URL or image key
+    uid: string;
+    username: string;
+    fcmToken?: string;
+    isOnline?: boolean;
+    onlineUntil?: FirebaseFirestore.Timestamp;
+    notificationsEnabled?: boolean;  // absent = true (default on)
+    phone?: string;
+    instagram_username?: string;
+    profile?: string;   // avatar URL or image key
 }
 
 interface MatchDoc {
     initiator_uid: string;
-    target_uid:    string;
-    status:        MatchStatus;
+    target_uid: string;
+    status: MatchStatus;
 }
 
 // ─── Core helpers ─────────────────────────────────────────────────────────────
@@ -128,8 +128,8 @@ function canNotify(user: UserDoc): boolean {
 async function sendOne(
     token: string,
     title: string,
-    body:  string,
-    data:  Record<string, string>,
+    body: string,
+    data: Record<string, string>,
 ): Promise<void> {
     try {
         const id = await fcm.send({
@@ -152,9 +152,9 @@ async function sendOne(
 
 async function sendMany(
     tokens: string[],
-    title:  string,
-    body:   string,
-    data:   Record<string, string>,
+    title: string,
+    body: string,
+    data: Record<string, string>,
 ): Promise<void> {
     if (tokens.length === 0) return;
     await Promise.all(tokens.map(t => sendOne(t, title, body, data)));
@@ -189,7 +189,7 @@ async function getEligibleFriendTokens(myUid: string): Promise<string[]> {
     // We want to skip friendX if friendX ghosted me → skip if friendXUid ∈ ghosted_by.
     const eligibleUids = friendships
         .filter(f => {
-            const friendUid  = f.uid1 === myUid ? f.uid2 : f.uid1;
+            const friendUid = f.uid1 === myUid ? f.uid2 : f.uid1;
             const ghosted_by = f.ghosted_by ?? [];
             // Skip this friend if THEY ghosted me (their uid is in ghosted_by)
             return !ghosted_by.includes(friendUid);
@@ -232,8 +232,8 @@ export const onFriendshipCreated = onDocumentCreated(
         logger.info('[onFriendshipCreated]', {
             requesterUid: f.requester_uid,
             recipientUid,
-            hasToken:     !!recipient?.fcmToken,
-            canNotify:    recipient ? canNotify(recipient) : false,
+            hasToken: !!recipient?.fcmToken,
+            canNotify: recipient ? canNotify(recipient) : false,
         });
 
         if (!requester || !recipient?.fcmToken || !canNotify(recipient)) return;
@@ -253,7 +253,7 @@ export const onFriendshipUpdated = onDocumentUpdated(
     { document: 'friendships/{docId}', region: REGION },
     async event => {
         const before = event.data?.before.data() as Friendship | undefined;
-        const after  = event.data?.after.data()  as Friendship | undefined;
+        const after = event.data?.after.data() as Friendship | undefined;
         if (!before || !after) return;
 
         // Only the pending → accepted transition
@@ -269,8 +269,8 @@ export const onFriendshipUpdated = onDocumentUpdated(
         logger.info('[onFriendshipUpdated]', {
             requesterUid: after.requester_uid,
             accepterUid,
-            hasToken:     !!requester?.fcmToken,
-            canNotify:    requester ? canNotify(requester) : false,
+            hasToken: !!requester?.fcmToken,
+            canNotify: requester ? canNotify(requester) : false,
         });
 
         if (!requester?.fcmToken || !canNotify(requester) || !accepter) return;
@@ -290,13 +290,13 @@ export const onUserOnlineChanged = onDocumentUpdated(
     { document: 'users/{uid}', region: REGION },
     async event => {
         const before = event.data?.before.data() as UserDoc | undefined;
-        const after  = event.data?.after.data()  as UserDoc | undefined;
+        const after = event.data?.after.data() as UserDoc | undefined;
         if (!before || !after) return;
 
         // Only when isOnline actually flipped
         if (before.isOnline === after.isOnline) return;
 
-        const myUid    = event.params.uid;
+        const myUid = event.params.uid;
         const isOnline = after.isOnline === true;
         const username = after.username ?? 'Someone';
 
@@ -338,7 +338,7 @@ export const onMatchCreated = onDocumentCreated(
 
         logger.info('[onMatchCreated]', {
             initiatorUid: match.initiator_uid,
-            targetUid:    match.target_uid,
+            targetUid: match.target_uid,
             matchId,
         });
 
@@ -379,7 +379,7 @@ export const onMatchUpdated = onDocumentUpdated(
     { document: 'matches/{matchId}', region: REGION },
     async event => {
         const before = event.data?.before.data() as MatchDoc | undefined;
-        const after  = event.data?.after.data()  as MatchDoc | undefined;
+        const after = event.data?.after.data() as MatchDoc | undefined;
         if (!before || !after) return;
 
         // Only the pending → accepted transition
@@ -394,7 +394,7 @@ export const onMatchUpdated = onDocumentUpdated(
 
         logger.info('[onMatchUpdated]', {
             initiatorUid: after.initiator_uid,
-            targetUid:    after.target_uid,
+            targetUid: after.target_uid,
             matchId,
         });
 
@@ -404,14 +404,14 @@ export const onMatchUpdated = onDocumentUpdated(
         // The MatchedScreen reads /matches/{matchId} and renders from these fields.
         // We write both sides so either party can read their counterpart's info.
         const contactUpdate: Record<string, string | null> = {
-            initiator_username:  initiator.username,
-            initiator_phone:     initiator.phone    ?? null,
+            initiator_username: initiator.username,
+            initiator_phone: initiator.phone ?? null,
             initiator_instagram: initiator.instagram_username ?? null,
-            initiator_profile:   initiator.profile  ?? null,
-            target_username:     target.username,
-            target_phone:        target.phone        ?? null,
-            target_instagram:    target.instagram_username    ?? null,
-            target_profile:      target.profile      ?? null,
+            initiator_profile: initiator.profile ?? null,
+            target_username: target.username,
+            target_phone: target.phone ?? null,
+            target_instagram: target.instagram_username ?? null,
+            target_profile: target.profile ?? null,
         };
 
         // Strip nulls — Firestore doesn't need null fields
@@ -456,7 +456,7 @@ export const onMatchUpdated = onDocumentUpdated(
 export const checkExpiredOnline = onSchedule(
     { schedule: 'every 15 minutes', region: REGION },
     async () => {
-            const expiredSnap = await db
+        const expiredSnap = await db
             .collection('users')
             .where('isOnline', '==', true)
             .where('onlineUntil', '<=', Timestamp.now())
@@ -474,7 +474,7 @@ export const checkExpiredOnline = onSchedule(
                 const user = doc.data() as UserDoc;
                 try {
                     await doc.ref.update({
-                        isOnline:    false,
+                        isOnline: false,
                         onlineUntil: FieldValue.delete(),
                     });
 
