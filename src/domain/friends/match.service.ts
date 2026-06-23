@@ -133,6 +133,81 @@ export async function getMatch(matchId: string): Promise<MatchDoc | null> {
   return { matchId: snap.id, ...(snap.data() as Omit<MatchDoc, 'matchId'>) };
 }
 
+
+export type EnrichedMatch = {
+  matchId: string;
+  username: string;
+  email?: string;
+  phone?: string;
+  whatsapp?: string;
+  instagram?: string;
+  profile?: string;
+};
+
+export function subscribeToMyMatches(
+  myUid: string,
+  cb: (matches: EnrichedMatch[]) => void
+) {
+  return firestore()
+    .collection('matches')
+    .where('status', '==', 'accepted')
+    .onSnapshot(
+      snapshot => {
+        try {
+          if (!snapshot) {
+            cb([]);
+            return;
+          }
+
+          const size = snapshot.size ?? 0;
+          console.log('📦 SIZE:', size);
+
+          const results: EnrichedMatch[] = [];
+
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            if (!data?.initiator_uid || !data?.target_uid) return;
+
+            const isInitiator = data.initiator_uid === myUid;
+
+            const friend = isInitiator
+              ? {
+                  username: data.target_username,
+                  phone: data.target_phone,
+                  instagram: data.target_instagram,
+                  profile: data.target_profile,
+                }
+              : {
+                  username: data.initiator_username,
+                  phone: data.initiator_phone,
+                  instagram: data.initiator_instagram,
+                  profile: data.initiator_profile,
+                };
+
+            results.push({
+              matchId: doc.id,
+              username: friend.username ?? 'Unknown',
+              phone: friend.phone ?? '',
+              whatsapp: friend.phone ?? '',
+              instagram: friend.instagram ?? '',
+              profile: friend.profile ?? '',
+              email: (data as any)?.email ?? '',
+            });
+          });
+
+          cb(results);
+        } catch (e) {
+          console.log('MATCH SUBSCRIBE ERROR:', e);
+          cb([]);
+        }
+      },
+      error => {
+        console.log('🔥 SNAPSHOT ERROR:', error);
+        cb([]);
+      }
+    );
+}
+
 /**
  * Subscribes to a match document in real time.
  * Use this on the MatchedScreen so contact details appear the moment

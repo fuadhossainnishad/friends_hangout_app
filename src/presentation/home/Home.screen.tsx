@@ -8,6 +8,7 @@ import {
     ActivityIndicator,
     Alert,
     Image,
+    FlatList
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -16,7 +17,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useAuth } from '../../app/context/AuthProvider';
 import { getOnlineFriends, type OnlineFriendRecord } from '../../domain/friends/friends.service';
 import { MainStackParamList } from '../../naviagtion/MainStack';
-import { createOrAcceptMatch } from '../../domain/friends/match.service';
+import { createOrAcceptMatch, EnrichedMatch, subscribeToMyMatches } from '../../domain/friends/match.service';
+import MatchedFriendCard from './components/MatchedFriendCard';
 
 //this is home screen where user can see online friends and go online/offline. If user is online, they can also send match requests to their online friends.
 //nothing new in this release
@@ -80,6 +82,7 @@ export default function HomeScreen() {
     const [isLoadingFriends, setIsLoadingFriends] = useState(false);
     // Track which friend is mid-match request to prevent double-taps
     const [matchingUid, setMatchingUid] = useState<string | null>(null);
+    const [matches, setMatches] = useState<EnrichedMatch[]>([]);
 
     // ── Load online friends ───────────────────────────────────────────────────
 
@@ -103,6 +106,17 @@ export default function HomeScreen() {
             setOnlineFriends([]);
         }
     }, [user?.isOnline, loadOnlineFriends]);
+
+useEffect(() => {
+  if (!user?.uid) return;
+
+  const unsub = subscribeToMyMatches(user.uid, (data) => {
+    console.log('🔥 MATCHES SNAPSHOT:', data);
+    setMatches(data);
+  });
+
+  return unsub;
+}, [user?.uid]);
 
     // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -128,21 +142,28 @@ export default function HomeScreen() {
         if (!user || matchingUid) return;
         setMatchingUid(record.user.uid);
 
-        const result = await createOrAcceptMatch(
-            user.uid,
-            record.user.uid,
-        );
+        // const result = await createOrAcceptMatch(
+        //     user.uid,
+        //     record.user.uid,
+        // );
 
-        console.log('MATCH RESULT', result);
+        // console.log('MATCH RESULT', result);
         try {
-            await createOrAcceptMatch(user.uid, record.user.uid);
+            const result = await createOrAcceptMatch(user.uid, record.user.uid);
+            console.log('MATCH RESULT', result);
+
             navigation.navigate('Matched', {
                 matchId: result.matchId,
                 friendName: record.user.username,
                 friendUsername: record.user.username,
             });
         } catch (error: any) {
-            Alert.alert('Error', error?.message ?? 'Could not create match.');
+            Alert.alert(
+                'Match Error',
+                error?.message === 'Already matched.'
+                    ? 'You are already matched with this user 💙'
+                    : error?.message ?? 'Could not create match.'
+            );
         } finally {
             setMatchingUid(null);
         }
@@ -238,7 +259,10 @@ export default function HomeScreen() {
                         <Text style={styles.offlineBadgeText}>Offline</Text>
                     </View>
                 </View>
-
+  <ScrollView
+    showsVerticalScrollIndicator={false}
+    contentContainerStyle={styles.scrollContent}
+  >
                 <View style={styles.offlineBody}>
                     <View style={styles.goOnlineWrapper}>
                         <LinearGradient
@@ -260,9 +284,49 @@ export default function HomeScreen() {
                     </View>
 
                     <Text style={styles.offlineHint}>
-                        When you go online, your friends are notified and can match with you
+                        When you go online, your friends are notified and can match with
                     </Text>
                 </View>
+
+                {/* ─── MATCHED FRIENDS SECTION ─── */}
+                <View style={styles.matchesContainer}>
+  <View style={styles.matchesHeader}>
+    <Text style={styles.sectionTitle}>Your Matches</Text>
+
+    <View style={styles.matchesBadge}>
+      <Text style={styles.matchesBadgeText}>
+        {matches.length}
+      </Text>
+    </View>
+  </View>
+
+  <Text style={styles.sectionSubtitle}>
+    {matches.length === 0
+      ? 'No connections yet'
+      : `You have ${matches.length} active connection${matches.length !== 1 ? 's' : ''}`}
+  </Text>
+
+  {matches.length === 0 ? (
+    <View style={styles.emptyStateCard}>
+      <Text style={styles.emptyTitle}>No matches yet</Text>
+      <Text style={styles.emptySubtitle}>
+        Start matching with online friends to build meaningful connections
+      </Text>
+    </View>
+  ) : (
+<View style={styles.matchesList}>
+ 
+    {matches.map(match => (
+      <MatchedFriendCard
+        key={match.matchId}
+        match={match}
+      />
+    ))}
+</View>
+  )}
+</View>
+  </ScrollView>
+
             </SafeAreaView>
         </View>
     );
@@ -323,7 +387,7 @@ const styles = StyleSheet.create({
     offlineBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.07)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 50 },
     offlineBadgeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.4)' },
     offlineBadgeText: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.5)' },
-    offlineBody: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: '18%', gap: 32 },
+    offlineBody: { flex: 1,marginTop:50, alignItems: 'center', justifyContent: 'center', paddingHorizontal: '18%', gap: 32 },
     goOnlineWrapper: { width: '100%', alignItems: 'center' },
     glowEffect: { position: 'absolute', width: '100%', height: '100%', borderRadius: 200, top: '0%', alignSelf: 'center' },
     goOnlineButton: { width: '100%', paddingVertical: 40, borderRadius: 999, alignItems: 'center', shadowColor: '#0052FF', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.6, shadowRadius: 40, elevation: 14 },
@@ -332,4 +396,61 @@ const styles = StyleSheet.create({
     counterLabel: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.35)', letterSpacing: 1.2 },
     counterValue: { fontSize: 64, fontWeight: '700', color: '#00FFB3', lineHeight: 72 },
     offlineHint: { color: 'rgba(255,255,255,0.35)', fontSize: 13, textAlign: 'center', lineHeight: 20 },
+    matchesContainer: {
+  marginTop: 30,
+  marginHorizontal: 20,
+},
+
+matchesHeader: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+},
+
+matchesBadge: {
+  minWidth: 28,
+  height: 28,
+  borderRadius: 16,
+  backgroundColor: 'rgba(0,82,255,0.15)',
+  borderWidth: 1,
+  borderColor: 'rgba(0,82,255,0.3)',
+  alignItems: 'center',
+  justifyContent: 'center',
+  paddingHorizontal: 12,
+},
+
+matchesBadgeText: {
+  color: '#4DA3FF',
+  fontSize: 14,
+  fontWeight: '700',
+},
+
+matchesList: {
+  marginTop: 14,
+  gap: 12,
+},
+
+emptyStateCard: {
+  marginTop: 16,
+  padding: 20,
+  borderRadius: 16,
+  backgroundColor: 'rgba(255,255,255,0.04)',
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.08)',
+  alignItems: 'center',
+},
+
+emptyTitle: {
+  fontSize: 15,
+  fontWeight: '700',
+  color: '#fff',
+  marginBottom: 6,
+},
+
+emptySubtitle: {
+  fontSize: 13,
+  color: 'rgba(255,255,255,0.5)',
+  textAlign: 'center',
+  lineHeight: 18,
+},
 });

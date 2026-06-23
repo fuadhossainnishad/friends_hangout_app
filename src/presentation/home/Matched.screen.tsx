@@ -92,6 +92,9 @@ export default function MatchedScreen({ route, navigation }: Props) {
 
     // Subscribe to real-time updates — contact info arrives 1-2 s after match
     useEffect(() => {
+          if (!matchId) return;
+
+setIsLoading(true);
         const unsub = subscribeToMatch(
             matchId,
             doc => {
